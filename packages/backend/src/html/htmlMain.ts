@@ -6,6 +6,7 @@ import { PluginSettings } from "../code";
 import { htmlAutoLayoutProps } from "./builderImpl/htmlAutoLayout";
 import { formatWithJSX } from "../common/parseJSX";
 import { commonSortChildrenWhenInferredAutoLayout } from "../common/commonChildrenOrder";
+import { globalTextNodes } from "../altNodes/altConversion";
 
 let showLayerName = false;
 
@@ -116,6 +117,8 @@ export const htmlText = (node: TextNode, isJsx: boolean): string => {
     .commonPositionStyles(node, localSettings.optimizeLayout)
     .textAlign(node);
 
+  const origTextNode = globalTextNodes[node.id];
+
   const styledHtml = layoutBuilder.getTextSegments(node.id);
   previousExecutionCache.push(...styledHtml);
 
@@ -124,8 +127,21 @@ export const htmlText = (node: TextNode, isJsx: boolean): string => {
     layoutBuilder.addStyles(styledHtml[0].style);
     content = styledHtml[0].text;
   } else {
+    // Support multiple styles within a single text node
+    const segmentsDividedByVariant = origTextNode.getStyledTextSegments(['fontSize', 'fontWeight']);
+
     content = styledHtml
-      .map((style) => `<span style="${style.style}">${style.text}</span>`)
+      .map((style) => {
+        const segmentForText = segmentsDividedByVariant.find((segment) => segment.characters === style.text);
+
+        let variant = "unknown";
+        if (segmentForText) {
+            const textStyleId = origTextNode.getRangeTextStyleId(segmentForText.start, segmentForText.end);
+            variant = figma.getStyleById(textStyleId).name
+        }
+
+        return `<span data-fig-typog-var="${variant}" style="${style.style}">${style.text}</span>`
+      })
       .join("");
   }
 

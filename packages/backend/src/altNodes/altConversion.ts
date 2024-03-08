@@ -4,6 +4,8 @@ type ParentType = (BaseNode & ChildrenMixin) | null;
 
 export let globalTextStyleSegments: Record<string, StyledTextSegment[]> = {};
 
+export const globalTextNodes: Record<string, TextNode> = {};
+
 export const cloneNode = <T extends BaseNode>(node: T): T => {
   // Create the cloned object with the correct prototype
   const cloned = {} as T;
@@ -19,7 +21,8 @@ export const cloneNode = <T extends BaseNode>(node: T): T => {
       prop !== "variantProperties" &&
       prop !== "componentPropertyDefinitions" &&
       prop !== "exposedInstances" &&
-      prop !== "componentProperties" &&
+    // Keep the "componentProperties"
+    //   prop !== "componentProperties" &&
       prop !== "componenPropertyReferences"
     ) {
       cloned[prop as keyof T] = node[prop as keyof T];
@@ -155,6 +158,9 @@ export const convertIntoNodes = (
           "textStyleId",
           "fillStyleId",
         ]);
+
+        globalTextNodes[node.id] = node;
+
         return standardClone(node, parent);
       case "STAR":
       case "POLYGON":

@@ -25,12 +25,18 @@ export class HtmlDefaultBuilder {
   styles: Array<string>;
   isJSX: boolean;
   visible: boolean;
+  node: any;
   name: string = "";
 
-  constructor(node: SceneNode, showLayerName: boolean, optIsJSX: boolean) {
+  constructor(node: any, showLayerName: boolean, optIsJSX: boolean) {
     this.isJSX = optIsJSX;
     this.styles = [];
     this.visible = node.visible;
+    this.node = node;
+
+    // Keep for debugging
+    // console.log('HtmlDefaultBuilder node', node);
+
     if (showLayerName) {
       this.name = className(node.name);
     }
@@ -288,14 +294,94 @@ export class HtmlDefaultBuilder {
     this.addStyles(...additionalStyle);
 
     const formattedStyles = this.styles.map((s) => s.trim());
+
+    const formattedStylesFiltered = formattedStyles.filter((s) => {
+        const styleProp = s.split(":")[0].trim();
+
+        if (styleProp === "width") {
+            return (this.node.layoutSizingHorizontal === "FIXED");
+        } else if (styleProp === "height") {
+            return (this.node.layoutSizingVertical === "FIXED");
+        }
+        return true;
+    });
+
     let formattedStyle = "";
     if (this.styles.length > 0) {
       if (this.isJSX) {
-        formattedStyle = ` style={{${formattedStyles.join(", ")}}}`;
+        formattedStyle = ` style={{${formattedStylesFiltered.join(", ")}}}`;
       } else {
-        formattedStyle = ` style="${formattedStyles.join("; ")}"`;
+        formattedStyle = ` style="${formattedStylesFiltered.join("; ")}"`;
       }
     }
+
+    formattedStyle = ` data-fig-type="${this.node.type}"${formattedStyle}`;
+
+    if (this.node.type === 'TEXT' && this.node.textStyleId) {
+        let textStyleId = this.node.textStyleId;
+        let typogVarName;
+
+        if (typeof textStyleId === 'string') {
+            typogVarName = figma.getStyleById(textStyleId).name;
+            formattedStyle = ` data-fig-typog-var="${typogVarName}"${formattedStyle}`;
+        }
+    }
+
+    const extraProps: Record<string, Record<string, string>> = {};
+
+    if (this.node.type === "INSTANCE") {
+        if (this.node.name === "Nav Button") {
+            formattedStyle = ` data-fig-cmp-type="IconButton"${formattedStyle}`;
+
+            extraProps['_width'] = { value: String(this.node.width) };
+
+            if (this.node.children?.length === 1 && this.node.children[0].type === "FRAME") {
+                const childNode = this.node.children[0];
+
+                if (childNode.children?.length === 1 && childNode.children[0].type === "INSTANCE") {
+                    extraProps['_icon'] = { value: childNode.children[0].name };
+                }
+            }
+        } else {
+            formattedStyle = ` data-fig-cmp-type="${this.node.name}"${formattedStyle}`;
+        }
+    }
+
+    if (this.node.type === "TEXT" && this.node.fontName?.family?.includes('Font Awesome')) {
+        formattedStyle = ` data-fig-cmp-type="SvgIcon"${formattedStyle}`;
+
+        extraProps['_fill'] = { value: figma.getStyleById(this.node.fillStyleId).name };
+    }
+
+    if (this.node.type === "VECTOR") {
+        formattedStyle = ` data-fig-cmp-type="SvgIcon"${formattedStyle}`;
+    }
+
+    if (this.node.type === "RECTANGLE" && this.node.fills && this.node.fills[0]?.type === "IMAGE") {
+        formattedStyle = ` data-fig-cmp-type="Image"${formattedStyle}`;
+    }
+
+    const props = {...this.node.componentProperties, ...extraProps};
+
+    if (props && Object.keys(props).length > 0) {
+        Object.keys(props).forEach((key) => {
+            let newKey = key;
+
+            if (key.includes("#")) {
+                newKey = key.split("#")[0];
+                props[newKey] = props[key];
+                delete props[key];
+            }
+            props[newKey] = props[newKey].value;         
+        });
+
+        // Encode prop values in a format that doesn't require escaping in JSON
+        const propsStr = JSON.stringify(props)
+            .replace(/\\"/g, "[quote]")
+            .replace(/"/g, "``");
+        formattedStyle = ` data-fig-props="${propsStr}"${formattedStyle}`;
+    }
+
     if (this.name.length > 0) {
       const classOrClassName = this.isJSX ? "className" : "class";
       return ` ${classOrClassName}="${this.name}"${formattedStyle}`;
