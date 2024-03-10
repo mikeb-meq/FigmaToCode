@@ -293,6 +293,31 @@ export class HtmlDefaultBuilder {
   build(additionalStyle: Array<string> = []): string {
     this.addStyles(...additionalStyle);
 
+    const addVariableStyle = (stylePropName: string, nodeStyleIdPropName: string): void => {
+        if (this.node[nodeStyleIdPropName] !== '') {
+            const varName = figma.getStyleById(this.node[nodeStyleIdPropName])?.name;
+
+            if (varName) {
+                const styleIndex = this.styles.findIndex((s) => s.startsWith(`${stylePropName}:`));
+                const newStyleVal = `${stylePropName}: var=${varName}`;
+
+                if (styleIndex !== -1) {
+                    this.styles[styleIndex] = newStyleVal;
+                } else {
+                    this.styles.push(newStyleVal);
+                }
+            }
+        }
+    }
+
+    addVariableStyle('background', 'backgroundStyleId');
+
+    if (this.node.type !== "FRAME") {
+        addVariableStyle('color', 'fillStyleId');
+    }
+
+
+    const nameWithoutSpaces = this.node.name.replace(/\s/g, '');
     const formattedStyles = this.styles.map((s) => s.trim());
 
     const formattedStylesFiltered = formattedStyles.filter((s) => {
@@ -306,32 +331,34 @@ export class HtmlDefaultBuilder {
         return true;
     });
 
-    let formattedStyle = "";
+    let formattedAttrs = "";
     if (this.styles.length > 0) {
       if (this.isJSX) {
-        formattedStyle = ` style={{${formattedStylesFiltered.join(", ")}}}`;
+        formattedAttrs = ` style={{${formattedStylesFiltered.join(", ")}}}`;
       } else {
-        formattedStyle = ` style="${formattedStylesFiltered.join("; ")}"`;
+        formattedAttrs = ` style="${formattedStylesFiltered.join("; ")}"`;
       }
     }
 
-    formattedStyle = ` data-fig-type="${this.node.type}"${formattedStyle}`;
+    formattedAttrs = ` data-fig-type="${this.node.type}"${formattedAttrs}`;
 
     if (this.node.type === 'TEXT' && this.node.textStyleId) {
         let textStyleId = this.node.textStyleId;
         let typogVarName;
 
         if (typeof textStyleId === 'string') {
-            typogVarName = figma.getStyleById(textStyleId).name;
-            formattedStyle = ` data-fig-typog-var="${typogVarName}"${formattedStyle}`;
+            typogVarName = figma.getStyleById(textStyleId)?.name || 'unknown';
+            formattedAttrs = ` data-fig-typog-var="${typogVarName}"${formattedAttrs}`;
         }
     }
 
     const extraProps: Record<string, Record<string, string>> = {};
 
     if (this.node.type === "INSTANCE") {
-        if (this.node.name === "Nav Button") {
-            formattedStyle = ` data-fig-cmp-type="IconButton"${formattedStyle}`;
+        formattedAttrs = ` data-fig-cmp-type="${nameWithoutSpaces}"${formattedAttrs}`;
+
+        if (nameWithoutSpaces === "NavButton") { // Hopefully to be standardized to IconButton and removed
+            formattedAttrs = ` data-fig-cmp-type="IconButton"${formattedAttrs}`;
 
             extraProps['_width'] = { value: String(this.node.width) };
 
@@ -342,23 +369,30 @@ export class HtmlDefaultBuilder {
                     extraProps['_icon'] = { value: childNode.children[0].name };
                 }
             }
-        } else {
-            formattedStyle = ` data-fig-cmp-type="${this.node.name}"${formattedStyle}`;
+        } else if (nameWithoutSpaces === "IconButton") {
+            if (this.node.children?.length === 1 && this.node.children[0].type === "INSTANCE") {
+                extraProps['_icon'] = { value: this.node.children[0].name };
+            }
+        } else if (this.node.children?.length === 1 && isIconNode(this.node.children[0])) {
+            extraProps['_icon'] = { value: this.node.name };
+            extraProps['_fill'] = { value: figma.getStyleById(this.node.children[0].fillStyleId)?.name || 'unknown' };
+
+            formattedAttrs = ` data-fig-cmp-type="SvgIcon"${formattedAttrs}`;
         }
     }
 
-    if (this.node.type === "TEXT" && this.node.fontName?.family?.includes('Font Awesome')) {
-        formattedStyle = ` data-fig-cmp-type="SvgIcon"${formattedStyle}`;
+    if (isIconNode(this.node)) {
+        formattedAttrs = ` data-fig-cmp-type="SvgIcon"${formattedAttrs}`;
 
-        extraProps['_fill'] = { value: figma.getStyleById(this.node.fillStyleId).name };
+        extraProps['_fill'] = { value: figma.getStyleById(this.node.fillStyleId)?.name || 'unknown' };
     }
 
     if (this.node.type === "VECTOR") {
-        formattedStyle = ` data-fig-cmp-type="SvgIcon"${formattedStyle}`;
+        formattedAttrs = ` data-fig-cmp-type="SvgIcon"${formattedAttrs}`;
     }
 
     if (this.node.type === "RECTANGLE" && this.node.fills && this.node.fills[0]?.type === "IMAGE") {
-        formattedStyle = ` data-fig-cmp-type="Image"${formattedStyle}`;
+        formattedAttrs = ` data-fig-cmp-type="Image"${formattedAttrs}`;
     }
 
     const props = {...this.node.componentProperties, ...extraProps};
@@ -379,14 +413,20 @@ export class HtmlDefaultBuilder {
         const propsStr = JSON.stringify(props)
             .replace(/\\"/g, "[quote]")
             .replace(/"/g, "``");
-        formattedStyle = ` data-fig-props="${propsStr}"${formattedStyle}`;
+        formattedAttrs = ` data-fig-props="${propsStr}"${formattedAttrs}`;
     }
 
     if (this.name.length > 0) {
       const classOrClassName = this.isJSX ? "className" : "class";
-      return ` ${classOrClassName}="${this.name}"${formattedStyle}`;
+      return ` ${classOrClassName}="${this.name}"${formattedAttrs}`;
     } else {
-      return formattedStyle;
+      return formattedAttrs;
     }
   }
+}
+
+function isIconNode(node: any) {
+    const isTextIconNode = node.type === "TEXT" && node.fontName?.family?.includes('Font Awesome');
+    const isVectorIconNode = node.type === "VECTOR";
+    return isTextIconNode || isVectorIconNode;
 }
