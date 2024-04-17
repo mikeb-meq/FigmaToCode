@@ -137,7 +137,11 @@ export const htmlText = (node: TextNode, isJsx: boolean): string => {
         let variant = "unknown";
         if (segmentForText) {
             const textStyleId = origTextNode.getRangeTextStyleId(segmentForText.start, segmentForText.end);
-            variant = figma.getStyleById(textStyleId).name
+            const textStyle = figma.getStyleById(textStyleId);
+
+            if (textStyle) {
+                variant = textStyle.name;
+            }
         }
 
         return `<span data-fig-typog-var="${variant}" style="${style.style}">${style.text}</span>`
